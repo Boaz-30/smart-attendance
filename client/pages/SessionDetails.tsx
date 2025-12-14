@@ -103,40 +103,142 @@ export default function SessionDetails() {
   };
 
   const getAttendanceUrl = () => {
-    return `${window.location.origin}/attend/${session?.sessionCode}`;
+    if (!session || !session.sessionCode) {
+      return null;
+    }
+    return `${window.location.origin}/attend/${session.sessionCode}`;
   };
 
   const copyToClipboard = async (text: string) => {
+    if (!text) {
+      toast({
+        title: "Error",
+        description: "No URL to copy",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCopying(true);
     try {
-      await navigator.clipboard.writeText(text);
+      // Try modern Clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback to older method
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
       toast({
         title: "Copied!",
         description: "Link copied to clipboard",
       });
     } catch (error) {
+      console.error("Copy to clipboard failed:", error);
       toast({
         title: "Copy failed",
-        description: "Could not copy to clipboard",
+        description: "Could not copy to clipboard. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setCopying(false);
     }
   };
 
   const shareLink = async () => {
     const url = getAttendanceUrl();
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `${session?.title} - Attendance`,
-          text: `Mark your attendance for ${session?.courseName}`,
-          url,
-        });
-      } catch (error) {
-        copyToClipboard(url);
+    if (!url) {
+      toast({
+        title: "Error",
+        description: "Session code not available",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSharing(true);
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `${session?.title} - Attendance`,
+            text: `Mark your attendance for ${session?.courseName}`,
+            url,
+          });
+        } catch (error) {
+          // User might have cancelled the share dialog, fallback to copy
+          if ((error as any).name !== "AbortError") {
+            await copyToClipboard(url);
+          }
+        }
+      } else {
+        // Share API not available, fall back to copy
+        await copyToClipboard(url);
       }
-    } else {
-      copyToClipboard(url);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const exportAttendance = async () => {
+    try {
+      setExporting(true);
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/sessions/${sessionId}/export`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to export attendance");
+      }
+
+      // Get the blob and create a download link
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      // Extract filename from Content-Disposition header
+      const contentDisposition = response.headers.get("content-disposition");
+      let filename = "attendance.csv";
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Success",
+        description: "Attendance exported successfully",
+      });
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast({
+        title: "Export failed",
+        description: "Could not export attendance. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
     }
   };
 
