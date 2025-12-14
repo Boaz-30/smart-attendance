@@ -402,15 +402,25 @@ export default function SessionDetails() {
               <div className="flex flex-col sm:flex-row gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => copyToClipboard(getAttendanceUrl())}
+                  onClick={() => {
+                    const url = getAttendanceUrl();
+                    if (url) {
+                      copyToClipboard(url);
+                    }
+                  }}
                   className="flex-1"
+                  disabled={copying || !session?.sessionCode}
                 >
                   <Copy className="w-4 h-4 mr-2" />
-                  Copy Link
+                  {copying ? "Copying..." : "Copy Link"}
                 </Button>
-                <Button onClick={shareLink} className="flex-1">
+                <Button
+                  onClick={shareLink}
+                  className="flex-1"
+                  disabled={sharing || !session?.sessionCode}
+                >
                   <Share className="w-4 h-4 mr-2" />
-                  Share
+                  {sharing ? "Sharing..." : "Share"}
                 </Button>
               </div>
 
