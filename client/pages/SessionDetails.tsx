@@ -507,9 +507,14 @@ export default function SessionDetails() {
                     View Attendance List
                   </Button>
                 </Link>
-                <Button variant="outline" className="w-full">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={exportAttendance}
+                  disabled={exporting}
+                >
                   <Download className="w-4 h-4 mr-2" />
-                  Export Attendance
+                  {exporting ? "Exporting..." : "Export Attendance"}
                 </Button>
                 {session.isActive && (
                   <AlertDialog>
