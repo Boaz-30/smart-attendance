@@ -42,6 +42,9 @@ export default function SessionDetails() {
   const [session, setSession] = useState<ClassSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [attendanceCount, setAttendanceCount] = useState(0);
+  const [copying, setCopying] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (sessionId) {
