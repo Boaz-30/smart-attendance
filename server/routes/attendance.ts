@@ -1,12 +1,6 @@
 import { RequestHandler } from "express";
-import { AttendanceRecord, AttendanceRequest } from "@shared/types";
-
-// In-memory storage for demo purposes
-let attendanceRecords: AttendanceRecord[] = [];
-let currentAttendanceId = 1;
-
-// Import sessions from sessions module (in a real app, this would be from database)
-import { sessions } from "./sessions-data";
+import { z } from "zod";
+import { prisma } from "../utils/prisma";
 
 const calculateDistance = (
   lat1: number,
@@ -28,115 +22,146 @@ const calculateDistance = (
   return R * c;
 };
 
-export const markAttendance: RequestHandler = (req, res) => {
+const markAttendanceSchema = z.object({
+  sessionCode: z.string(),
+  studentName: z.string().min(1),
+  indexNumber: z.string().min(1),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  }),
+});
+
+export const markAttendance: RequestHandler = async (req, res, next) => {
   try {
-    const {
-      sessionCode,
-      studentName,
-      indexNumber,
-      location,
-    }: AttendanceRequest = req.body;
+    const validatedData = markAttendanceSchema.parse(req.body);
+    const { sessionCode, studentName, indexNumber, location } = validatedData;
 
     // Find the session
-    const session = sessions.find((s) => s.sessionCode === sessionCode);
+    const session = await prisma.classSession.findUnique({
+      where: { sessionCode },
+    });
+
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
     if (!session.isActive) {
-      return res.status(400).json({ message: "Session is not active" });
+      res.status(400).json({ message: "Session is not active" });
+      return;
     }
 
     // Check if student already marked attendance for this session
-    const existingRecord = attendanceRecords.find(
-      (r) => r.sessionId === session.id && r.indexNumber === indexNumber,
-    );
+    const existingRecord = await prisma.attendanceRecord.findFirst({
+      where: {
+        sessionId: session.id,
+        indexNumber,
+      },
+    });
 
     if (existingRecord) {
-      return res
-        .status(400)
-        .json({ message: "Attendance already marked for this session" });
+      res.status(400).json({ message: "Attendance already marked for this session" });
+      return;
     }
 
     // Calculate distance from class location
     const distance = calculateDistance(
       location.latitude,
       location.longitude,
-      session.location.latitude,
-      session.location.longitude,
+      session.latitude,
+      session.longitude,
     );
 
     const isValid = distance <= session.radius;
 
     // Create attendance record
-    const attendanceRecord: AttendanceRecord = {
-      id: currentAttendanceId.toString(),
-      sessionId: session.id,
-      studentName,
-      indexNumber,
-      timestamp: new Date().toISOString(),
-      location,
-      isValid,
-    };
-
-    attendanceRecords.push(attendanceRecord);
-    currentAttendanceId++;
+    const attendanceRecord = await prisma.attendanceRecord.create({
+      data: {
+        sessionId: session.id,
+        studentName,
+        indexNumber,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        isValid,
+      },
+    });
 
     res.status(201).json({
       message: "Attendance marked successfully",
-      record: attendanceRecord,
+      record: {
+        ...attendanceRecord,
+        location: {
+          latitude: attendanceRecord.latitude,
+          longitude: attendanceRecord.longitude,
+        }
+      },
       distance: Math.round(distance),
     });
   } catch (error) {
-    res.status(500).json({ message: "Failed to mark attendance" });
+    next(error);
   }
 };
 
-export const getSessionAttendance: RequestHandler = (req, res) => {
+export const getSessionAttendance: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const lecturer = (req as any).user;
 
     // Verify session belongs to lecturer
-    const session = sessions.find(
-      (s) => s.id === sessionId && s.lecturerId === lecturer.id,
-    );
+    const session = await prisma.classSession.findFirst({
+      where: {
+        id: sessionId,
+        lecturerId: lecturer.id,
+      },
+    });
+
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
-    const sessionAttendance = attendanceRecords.filter(
-      (r) => r.sessionId === sessionId,
-    );
+    const sessionAttendance = await prisma.attendanceRecord.findMany({
+      where: { sessionId },
+      orderBy: { timestamp: "desc" },
+    });
 
-    // Sort by timestamp, newest first
-    sessionAttendance.sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    );
+    const formattedAttendance = sessionAttendance.map(record => ({
+      ...record,
+      location: {
+        latitude: record.latitude,
+        longitude: record.longitude,
+      }
+    }));
 
-    res.json(sessionAttendance);
+    res.json(formattedAttendance);
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch attendance" });
+    next(error);
   }
 };
 
-export const exportAttendance: RequestHandler = (req, res) => {
+export const exportAttendance: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const lecturer = (req as any).user;
 
     // Verify session belongs to lecturer
-    const session = sessions.find(
-      (s) => s.id === sessionId && s.lecturerId === lecturer.id,
-    );
+    const session = await prisma.classSession.findFirst({
+      where: {
+        id: sessionId,
+        lecturerId: lecturer.id,
+      },
+    });
+
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
-    const sessionAttendance = attendanceRecords.filter(
-      (r) => r.sessionId === sessionId,
-    );
+    const sessionAttendance = await prisma.attendanceRecord.findMany({
+      where: { sessionId },
+      orderBy: { timestamp: "desc" },
+    });
 
     // Create CSV content
     const csvHeader =
@@ -144,7 +169,7 @@ export const exportAttendance: RequestHandler = (req, res) => {
     const csvRows = sessionAttendance
       .map(
         (record) =>
-          `"${record.studentName}","${record.indexNumber}","${record.timestamp}","${record.isValid ? "Valid" : "Invalid"}",${record.location.latitude},${record.location.longitude}`,
+          `"${record.studentName}","${record.indexNumber}","${record.timestamp.toISOString()}","${record.isValid ? "Valid" : "Invalid"}",${record.latitude},${record.longitude}`,
       )
       .join("\n");
 
@@ -157,6 +182,6 @@ export const exportAttendance: RequestHandler = (req, res) => {
     );
     res.send(csvContent);
   } catch (error) {
-    res.status(500).json({ message: "Failed to export attendance" });
+    next(error);
   }
 };
