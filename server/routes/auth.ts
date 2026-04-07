@@ -83,7 +83,7 @@ export const handleLogin: RequestHandler = async (req, res, next) => {
     const token = jwt.sign(
       { id: lecturer.id, email: lecturer.email },
       JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "1d" },
     );
 
     res.json({
@@ -107,8 +107,11 @@ export const authenticateToken: RequestHandler = async (req, res, next) => {
     }
 
     // Verify and decode token
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string };
-    
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: string;
+      email: string;
+    };
+
     // Find user in database
     const lecturer = await prisma.lecturer.findUnique({
       where: { id: decoded.id },
@@ -120,7 +123,11 @@ export const authenticateToken: RequestHandler = async (req, res, next) => {
     }
 
     // Attach user to request object
-    (req as any).user = { id: lecturer.id, name: lecturer.name, email: lecturer.email };
+    (req as any).user = {
+      id: lecturer.id,
+      name: lecturer.name,
+      email: lecturer.email,
+    };
     next();
   } catch (error) {
     res.status(403).json({ message: "Invalid or expired token" });
