@@ -25,13 +25,15 @@ export const createSession: RequestHandler = async (req, res, next) => {
     const lecturer = (req as any).user;
 
     const sessionCode = generateSessionCode();
-    
+
     // Check for unique session code collision (very rare but good practice)
     const existingCode = await prisma.classSession.findUnique({
       where: { sessionCode },
     });
     if (existingCode) {
-      res.status(500).json({ message: "Failed to generate session code, try again" });
+      res
+        .status(500)
+        .json({ message: "Failed to generate session code, try again" });
       return;
     }
 
@@ -57,7 +59,7 @@ export const createSession: RequestHandler = async (req, res, next) => {
         latitude: session.latitude,
         longitude: session.longitude,
         address: session.address,
-      }
+      },
     });
   } catch (error) {
     next(error);
@@ -72,13 +74,13 @@ export const getLecturerSessions: RequestHandler = async (req, res, next) => {
       orderBy: { datetime: "desc" },
     });
 
-    const formattedSessions = lecturerSessions.map(session => ({
+    const formattedSessions = lecturerSessions.map((session) => ({
       ...session,
       location: {
         latitude: session.latitude,
         longitude: session.longitude,
         address: session.address,
-      }
+      },
     }));
 
     res.json(formattedSessions);
@@ -110,7 +112,7 @@ export const getSession: RequestHandler = async (req, res, next) => {
         latitude: session.latitude,
         longitude: session.longitude,
         address: session.address,
-      }
+      },
     });
   } catch (error) {
     next(error);
@@ -176,7 +178,7 @@ export const toggleSessionStatus: RequestHandler = async (req, res, next) => {
         latitude: updatedSession.latitude,
         longitude: updatedSession.longitude,
         address: updatedSession.address,
-      }
+      },
     });
   } catch (error) {
     next(error);
@@ -213,7 +215,7 @@ export const endSession: RequestHandler = async (req, res, next) => {
         address: updatedSession.address,
       },
       isEnded: true,
-      endedAt: new Date().toISOString()
+      endedAt: new Date().toISOString(),
     });
   } catch (error) {
     next(error);

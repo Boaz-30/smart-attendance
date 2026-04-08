@@ -61,7 +61,9 @@ export const markAttendance: RequestHandler = async (req, res, next) => {
     });
 
     if (existingRecord) {
-      res.status(400).json({ message: "Attendance already marked for this session" });
+      res
+        .status(400)
+        .json({ message: "Attendance already marked for this session" });
       return;
     }
 
@@ -94,7 +96,7 @@ export const markAttendance: RequestHandler = async (req, res, next) => {
         location: {
           latitude: attendanceRecord.latitude,
           longitude: attendanceRecord.longitude,
-        }
+        },
       },
       distance: Math.round(distance),
     });
@@ -126,12 +128,12 @@ export const getSessionAttendance: RequestHandler = async (req, res, next) => {
       orderBy: { timestamp: "desc" },
     });
 
-    const formattedAttendance = sessionAttendance.map(record => ({
+    const formattedAttendance = sessionAttendance.map((record) => ({
       ...record,
       location: {
         latitude: record.latitude,
         longitude: record.longitude,
-      }
+      },
     }));
 
     res.json(formattedAttendance);
