@@ -22,9 +22,24 @@ import { logger } from "./utils/logger";
 export function createServer() {
   const app = express();
 
+  // CORS Configuration
+  // In development: allows all origins for flexibility during testing
+  // In production: restricts to FRONTEND_URL for security
+  const corsOrigin = process.env.NODE_ENV === "production"
+    ? process.env.FRONTEND_URL
+    : "*";
+
+  // Validate production CORS configuration
+  if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
+    logger.warn(
+      "⚠️  WARNING: FRONTEND_URL is not set in production. " +
+      "This may cause CORS issues. Set FRONTEND_URL in your environment variables."
+    );
+  }
+
   // Middleware
   app.use(cors({
-    origin: process.env.NODE_ENV === "production" ? (process.env.FRONTEND_URL || "https://yourfrontend.com") : "*",
+    origin: corsOrigin,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
   }));
