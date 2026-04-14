@@ -1,147 +1,221 @@
 import { RequestHandler } from "express";
-import { ClassSession, CreateSessionRequest } from "@shared/types";
-import { sessions, currentSessionId, addSession } from "./sessions-data";
-
-// Use shared session storage
-let sessionIdCounter = currentSessionId;
+import { z } from "zod";
+import { prisma } from "../utils/prisma";
 
 const generateSessionCode = (): string => {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 };
 
-export const createSession: RequestHandler = (req, res) => {
+const createSessionSchema = z.object({
+  title: z.string().min(1),
+  courseName: z.string().min(1),
+  datetime: z.string(),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+    address: z.string(),
+  }),
+  radius: z.number().positive(),
+});
+
+export const createSession: RequestHandler = async (req, res, next) => {
   try {
-    const {
-      title,
-      courseName,
-      datetime,
-      location,
-      radius,
-    }: CreateSessionRequest = req.body;
+    const validatedData = createSessionSchema.parse(req.body);
+    const { title, courseName, datetime, location, radius } = validatedData;
     const lecturer = (req as any).user;
 
     const sessionCode = generateSessionCode();
-    const session: ClassSession = {
-      id: sessionIdCounter.toString(),
-      lecturerId: lecturer.id,
-      title,
-      courseName,
-      datetime,
-      location,
-      radius,
-      sessionCode,
-      qrCode: `${process.env.BASE_URL || "http://localhost:8080"}/attend/${sessionCode}`,
-      isActive: true,
-    };
+    
+    // Check for unique session code collision (very rare but good practice)
+    const existingCode = await prisma.classSession.findUnique({
+      where: { sessionCode },
+    });
+    if (existingCode) {
+      res.status(500).json({ message: "Failed to generate session code, try again" });
+      return;
+    }
 
-    addSession(session);
-    sessionIdCounter++;
+    const session = await prisma.classSession.create({
+      data: {
+        lecturerId: lecturer.id,
+        title,
+        courseName,
+        datetime: new Date(datetime),
+        address: location.address,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radius,
+        sessionCode,
+        qrCode: `${process.env.BASE_URL || "http://localhost:8080"}/attend/${sessionCode}`,
+        isActive: true,
+      },
+    });
 
-    res.status(201).json(session);
+    res.status(201).json({
+      ...session,
+      location: {
+        latitude: session.latitude,
+        longitude: session.longitude,
+        address: session.address,
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: "Failed to create session" });
+    next(error);
   }
 };
 
-export const getLecturerSessions: RequestHandler = (req, res) => {
+export const getLecturerSessions: RequestHandler = async (req, res, next) => {
   try {
     const lecturer = (req as any).user;
-    const lecturerSessions = sessions.filter(
-      (s) => s.lecturerId === lecturer.id,
-    );
+    const lecturerSessions = await prisma.classSession.findMany({
+      where: { lecturerId: lecturer.id },
+      orderBy: { datetime: "desc" },
+    });
 
-    // Sort by datetime, newest first
-    lecturerSessions.sort(
-      (a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime(),
-    );
+    const formattedSessions = lecturerSessions.map(session => ({
+      ...session,
+      location: {
+        latitude: session.latitude,
+        longitude: session.longitude,
+        address: session.address,
+      }
+    }));
 
-    res.json(lecturerSessions);
+    res.json(formattedSessions);
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch sessions" });
+    next(error);
   }
 };
 
-export const getSession: RequestHandler = (req, res) => {
+export const getSession: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const lecturer = (req as any).user;
 
-    const session = sessions.find(
-      (s) => s.id === sessionId && s.lecturerId === lecturer.id,
-    );
+    const session = await prisma.classSession.findFirst({
+      where: {
+        id: sessionId,
+        lecturerId: lecturer.id,
+      },
+    });
+
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
-    res.json(session);
+    res.json({
+      ...session,
+      location: {
+        latitude: session.latitude,
+        longitude: session.longitude,
+        address: session.address,
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch session" });
+    next(error);
   }
 };
 
-export const getSessionByCode: RequestHandler = (req, res) => {
+export const getSessionByCode: RequestHandler = async (req, res, next) => {
   try {
     const { sessionCode } = req.params;
-    const session = sessions.find((s) => s.sessionCode === sessionCode);
+    const session = await prisma.classSession.findUnique({
+      where: { sessionCode },
+    });
 
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
-    // Return only public information for students
     res.json({
       id: session.id,
       title: session.title,
       courseName: session.courseName,
       datetime: session.datetime,
-      location: session.location,
+      location: {
+        latitude: session.latitude,
+        longitude: session.longitude,
+        address: session.address,
+      },
       radius: session.radius,
       sessionCode: session.sessionCode,
       isActive: session.isActive,
     });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch session" });
+    next(error);
   }
 };
 
-export const toggleSessionStatus: RequestHandler = (req, res) => {
+export const toggleSessionStatus: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const lecturer = (req as any).user;
 
-    const session = sessions.find(
-      (s) => s.id === sessionId && s.lecturerId === lecturer.id,
-    );
+    const session = await prisma.classSession.findFirst({
+      where: {
+        id: sessionId,
+        lecturerId: lecturer.id,
+      },
+    });
+
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
-    session.isActive = !session.isActive;
-    res.json(session);
+    const updatedSession = await prisma.classSession.update({
+      where: { id: sessionId },
+      data: { isActive: !session.isActive },
+    });
+
+    res.json({
+      ...updatedSession,
+      location: {
+        latitude: updatedSession.latitude,
+        longitude: updatedSession.longitude,
+        address: updatedSession.address,
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: "Failed to update session status" });
+    next(error);
   }
 };
 
-export const endSession: RequestHandler = (req, res) => {
+export const endSession: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
     const lecturer = (req as any).user;
 
-    const session = sessions.find(
-      (s) => s.id === sessionId && s.lecturerId === lecturer.id,
-    );
+    const session = await prisma.classSession.findFirst({
+      where: {
+        id: sessionId,
+        lecturerId: lecturer.id,
+      },
+    });
+
     if (!session) {
-      return res.status(404).json({ message: "Session not found" });
+      res.status(404).json({ message: "Session not found" });
+      return;
     }
 
-    // Permanently end the session - set isActive to false and add an ended flag
-    session.isActive = false;
-    (session as any).isEnded = true;
-    (session as any).endedAt = new Date().toISOString();
+    const updatedSession = await prisma.classSession.update({
+      where: { id: sessionId },
+      data: { isActive: false },
+    });
 
-    res.json(session);
+    res.json({
+      ...updatedSession,
+      location: {
+        latitude: updatedSession.latitude,
+        longitude: updatedSession.longitude,
+        address: updatedSession.address,
+      },
+      isEnded: true,
+      endedAt: new Date().toISOString()
+    });
   } catch (error) {
-    res.status(500).json({ message: "Failed to end session" });
+    next(error);
   }
 };

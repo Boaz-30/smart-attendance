@@ -254,7 +254,7 @@ npm start
 
 ### Deployment Options
 
-- **Vercel/Netlify** - Frontend deployment with serverless functions
+- **Vercel** - Frontend deployment
 - **Render/Railway** - Full-stack deployment
 - **Docker** - Containerized deployment
 - **Traditional VPS** - Manual server setup

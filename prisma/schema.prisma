@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Lecturer {
+  id       String    @id @default(cuid())
+  name     String
+  email    String    @unique
+  password String
+  sessions ClassSession[]
+}
+
+model ClassSession {
+  id          String   @id @default(cuid())
+  lecturerId  String
+  title       String
+  courseName  String
+  datetime    DateTime
+  address     String
+  latitude    Float
+  longitude   Float
+  radius      Float
+  sessionCode String   @unique
+  qrCode      String // Will store base64 or URL
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  lecturer    Lecturer           @relation(fields: [lecturerId], references: [id])
+  attendance  AttendanceRecord[]
+}
+
+model AttendanceRecord {
+  id          String   @id @default(cuid())
+  sessionId   String
+  studentName String
+  indexNumber String
+  timestamp   DateTime @default(now())
+  latitude    Float
+  longitude   Float
+  isValid     Boolean
+
+  session     ClassSession @relation(fields: [sessionId], references: [id])
+
+  @@unique([sessionId, indexNumber])
+}
